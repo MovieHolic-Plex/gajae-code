@@ -12,15 +12,25 @@ const TERMINAL_PROGRESS_CLEAR_SEQUENCE = "\x1b]9;4;0;\x07";
  * Whether GJC may reprogram the keyboard with enhanced input protocols
  * (the Kitty keyboard protocol and the xterm modifyOtherKeys fallback).
  *
- * Enabled by default. Set `GJC_TUI_KEYBOARD_PROTOCOL=0` to leave the keyboard in
- * its default mode. Some terminals — notably Android Termius — break IME
- * composition (e.g. Korean/Hangul syllable composition) while these enhanced
- * modes are active, committing every intermediate composing jamo/syllable
- * instead of only the final character. Disabling the protocol restores normal
- * IME behavior, matching how other TUIs that leave the keyboard untouched render
- * Korean correctly.
+ * Enabled by default on non-Windows platforms. Set `GJC_TUI_KEYBOARD_PROTOCOL=0`
+ * to leave the keyboard in its default mode. Some terminals — notably Android
+ * Termius — break IME composition (e.g. Korean/Hangul syllable composition)
+ * while these enhanced modes are active, committing every intermediate
+ * composing jamo/syllable instead of only the final character. Disabling the
+ * protocol restores normal IME behavior, matching how other TUIs that leave the
+ * keyboard untouched render Korean correctly.
+ *
+ * On Windows the default is off: both Kitty keyboard protocol and
+ * modifyOtherKeys disrupt Hangul/CJK IME composition under conhost, Windows
+ * Terminal, and Electron hosts such as Orca. Force-enable with
+ * `GJC_TUI_KEYBOARD_PROTOCOL=1` only if a host needs enhanced key reporting and
+ * keeps IME intact.
  */
 export function keyboardEnhancementEnabled(): boolean {
+	// Windows IME composition is the priority default; enhanced key protocols are opt-in.
+	if (process.platform === "win32") {
+		return $flag("GJC_TUI_KEYBOARD_PROTOCOL", false);
+	}
 	return $flag("GJC_TUI_KEYBOARD_PROTOCOL", true);
 }
 
@@ -605,28 +615,19 @@ export class ProcessTerminal implements Terminal {
 		this.#setupStdinBuffer();
 		process.stdin.on("data", this.#stdinDataHandler!);
 		// Leave the keyboard in its default mode when enhanced input protocols are
-		// disabled. Android Termius (and similar terminals) break IME/Hangul
-		// composition when the Kitty keyboard protocol or modifyOtherKeys is active,
-		// committing every intermediate composing jamo/syllable. Skipping the query
-		// and the modifyOtherKeys fallback restores normal IME composition.
+		// disabled. Android Termius (and Windows hosts — Orca/Windows Terminal/
+		// conhost) break IME/Hangul composition when the Kitty keyboard protocol or
+		// modifyOtherKeys is active, committing every intermediate composing
+		// jamo/syllable. Skipping the query and the modifyOtherKeys fallback restores
+		// normal IME composition. On win32 keyboardEnhancementEnabled() defaults off
+		// so neither the Kitty query nor modifyOtherKeys runs unless explicitly forced.
 		if (!keyboardEnhancementEnabled()) {
 			return;
 		}
 		this.#safeWrite("\x1b[?u");
-		// Windows Terminal and conhost do not implement the Kitty keyboard
-		// protocol, so the query above never activates it there. They do honor the
-		// modifyOtherKeys fallback below — but that mode breaks Windows CJK/Hangul
-		// IME composition: Alt+Enter (and other chords) bypass the IME commit, so
-		// the syllable still being composed is never delivered to the app and the
-		// action fires on empty text (e.g. queue-message no-ops unless the user
-		// types a trailing space to force a commit first). Skip the fallback on
-		// win32; legacy encodings still deliver Alt+Enter (ESC CR) and the newline
-		// chords, and IME composition works again. Opt back in with
-		// GJC_TUI_KEYBOARD_PROTOCOL=0 disabling all enhancement, or force-enable
-		// elsewhere if a Kitty-capable Windows terminal appears.
-		if (process.platform === "win32") {
-			return;
-		}
+		// If the terminal does not answer the Kitty query, fall back to xterm
+		// modifyOtherKeys level 2 so modified chords stay disambiguated. Windows
+		// never reaches this path by default (see keyboardEnhancementEnabled).
 		this.#modifyOtherKeysTimeout = setTimeout(() => {
 			this.#modifyOtherKeysTimeout = undefined;
 			if (this.#kittyProtocolActive || this.#modifyOtherKeysActive) {

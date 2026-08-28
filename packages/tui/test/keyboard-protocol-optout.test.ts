@@ -101,20 +101,36 @@ describe("ProcessTerminal keyboard-protocol opt-out (GJC_TUI_KEYBOARD_PROTOCOL)"
 		terminal.stop();
 	});
 
-	it("skips only the modifyOtherKeys fallback on win32 to preserve IME composition", () => {
+	it("skips all keyboard enhancements on win32 by default to preserve IME composition", () => {
 		vi.useFakeTimers();
 		setPlatform("win32");
 		delete Bun.env.GJC_TUI_KEYBOARD_PROTOCOL;
+		// win32 defaults keyboard enhancement off — Kitty query and modifyOtherKeys
+		// both break Hangul/CJK IME under Orca/Windows Terminal/conhost.
+		expect(keyboardEnhancementEnabled()).toBe(false);
+
+		const { terminal, writes } = setupTerminal();
+
+		expect(writes).not.toContain(KITTY_QUERY);
+
+		vi.advanceTimersByTime(150);
+		expect(writes).not.toContain(MODIFY_OTHER_KEYS);
+
+		terminal.stop();
+	});
+
+	it("force-enables keyboard enhancements on win32 when GJC_TUI_KEYBOARD_PROTOCOL=1", () => {
+		vi.useFakeTimers();
+		setPlatform("win32");
+		Bun.env.GJC_TUI_KEYBOARD_PROTOCOL = "1";
 		expect(keyboardEnhancementEnabled()).toBe(true);
 
 		const { terminal, writes } = setupTerminal();
 
-		// The Kitty query is still emitted (harmless where unsupported), but the
-		// modifyOtherKeys fallback that breaks Windows Hangul/CJK IME is skipped.
 		expect(writes).toContain(KITTY_QUERY);
 
 		vi.advanceTimersByTime(150);
-		expect(writes).not.toContain(MODIFY_OTHER_KEYS);
+		expect(writes).toContain(MODIFY_OTHER_KEYS);
 
 		terminal.stop();
 	});

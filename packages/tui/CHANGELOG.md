@@ -3,6 +3,7 @@
 ## [Unreleased]
 ### Fixed
 
+- Fixed Windows Hangul/CJK IME composition being swallowed under Orca and other Windows hosts: keyboard enhancement now defaults off on win32, so neither the Kitty keyboard protocol query nor the xterm `modifyOtherKeys` fallback runs unless `GJC_TUI_KEYBOARD_PROTOCOL=1` is set. Previously only `modifyOtherKeys` was skipped while the Kitty query could still activate when a host (e.g. Orca) answered `CSI ? u`, which interrupted Hangul syllable composition mid-jamo.
 - Shared the temporary stdout error listener across terminal instances, preventing `MaxListenersExceededWarning` during repeated TUI start/stop cycles while retaining late detached-PTY error handling.
 - Added a TUI-lifetime terminal cleanup queue so component-owned escape cleanup can be retried after terminal recovery even when the originating component has already been disposed.
 
